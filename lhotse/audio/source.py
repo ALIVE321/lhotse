@@ -71,6 +71,41 @@ class AudioSource:
     def format(self) -> str:
         return self._get_format()
 
+    def read_audio_from_seq(self):
+        tmp_info = self.source.strip().split("|")
+        assert len(tmp_info) == 4
+        assert tmp_info[0] == 'seq'
+        file_path = tmp_info[1]
+        file_seek = int(tmp_info[2])
+        file_length = int(tmp_info[3])
+        file_length = int(file_length / 2) * 2 # to make it compatible with numpy int 16
+        fp = open(file_path, 'rb')
+        fp.seek(file_seek)
+        data = fp.read(file_length)
+        fp.close()
+        assert len(data) == file_length
+        data = np.frombuffer(data, dtype='h')
+        data.astype('float32')
+        data = data / 32768.0
+        return data
+
+    def read_audio_from_patch(self):
+        tmp_info = self.source.strip().split("|")
+        assert len(tmp_info) == 3
+        file_path = tmp_info[0]
+        file_seek = int(tmp_info[1])
+        file_length = int(tmp_info[2])
+        file_length = int(file_length / 2) * 2 # to make it compatible with numpy int 16
+        fp = open(file_path, 'rb')
+        fp.seek(file_seek)
+        data = fp.read(file_length)
+        fp.close()
+        assert len(data) == file_length
+        data = np.frombuffer(data, dtype='h')
+        data.astype('float32')
+        data = data / 32768.0
+        return data
+
     def load_audio(
         self,
         offset: Seconds = 0.0,
@@ -89,27 +124,32 @@ class AudioSource:
         :param force_opus_sampling_rate: This parameter is only used when we detect an OPUS file.
             It will tell ffmpeg to resample OPUS to this sampling rate.
         """
-        source = self._prepare_for_reading(offset=offset, duration=duration)
+        if self.type == 'buffer':
+            samples = self.read_audio_from_seq()
+        elif self.type == 'patch':
+            samples = self.read_audio_from_patch()
+        else:
+            source = self._prepare_for_reading(offset=offset, duration=duration)
 
-        samples, sampling_rate = read_audio(
-            source,
-            offset=offset,
-            duration=duration,
-            force_opus_sampling_rate=force_opus_sampling_rate,
-        )
-
-        # explicit sanity check for duration as soundfile does not complain here
-        if duration is not None:
-            num_samples = (
-                samples.shape[0] if len(samples.shape) == 1 else samples.shape[1]
+            samples, sampling_rate = read_audio(
+                source,
+                offset=offset,
+                duration=duration,
+                force_opus_sampling_rate=force_opus_sampling_rate,
             )
-            available_duration = num_samples / sampling_rate
-            if (
-                available_duration < duration - get_audio_duration_mismatch_tolerance()
-            ):  # set the allowance as 1ms to avoid float error
-                raise DurationMismatchError(
-                    f"Requested more audio ({duration}s) than available ({available_duration}s)"
+
+            # explicit sanity check for duration as soundfile does not complain here
+            if duration is not None:
+                num_samples = (
+                    samples.shape[0] if len(samples.shape) == 1 else samples.shape[1]
                 )
+                available_duration = num_samples / sampling_rate
+                if (
+                    available_duration < duration - get_audio_duration_mismatch_tolerance()
+                ):  # set the allowance as 1ms to avoid float error
+                    raise DurationMismatchError(
+                        f"Requested more audio ({duration}s) than available ({available_duration}s)"
+                    )
 
         return samples.astype(np.float32)
 

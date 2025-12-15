@@ -74,11 +74,14 @@ class MonoCut(DataCut):
         :return: a numpy ndarray with audio samples, with shape (1 <channel>, N <samples>)
         """
         if self.has_recording:
-            return self.recording.load_audio(
+            res = self.recording.load_audio(
                 channels=self.channel,
                 offset=self.start,
                 duration=self.duration,
             )
+            if len(res.shape) == 2 and res.shape[0] > 1:
+                res = res[[0]]
+            return res
         return None
 
     @rich_exception_info
